@@ -29,10 +29,12 @@ METHODS = {
 
 
 def get_method(name):
-    if name == "rl":
+    if name in ("rl", "rl_joint"):
+        from functools import partial
+
         from xpr.search.rl import reinforce
 
-        return reinforce
+        return partial(reinforce, joint_bits=name == "rl_joint")
     return METHODS[name]
 
 

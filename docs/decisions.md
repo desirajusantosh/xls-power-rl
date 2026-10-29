@@ -2,6 +2,51 @@
 
 Newest first. Each entry: date, decision, why, what would change it.
 
+## 2026-10-28: Final validation: all methods incl. LLM, CEM, joint-bit RL
+
+All 162 candidates passed the gates and the reference check at rtl, synth and route.
+
+| Best post-route power | GA | CEM | RL | RL joint | LLM | hand-written |
+|---|---|---|---|---|---|---|
+| MAC | 1383 | 1427 | 1444 | 1273 | **1485** | 915 |
+| bf16, any input | 1495 | 1598 | 1405 | 1350 | **1680** | 1521 |
+| bf16, finite only | 1482 | 1608 | 1280 | 1289 | **1670** | 1446 |
+| matmul4 | 9112 | 9836 | 8788 | n/a | **12395** (load-only) | 9365 |
+
+**Conclusions.**
+1. The LLM policy wins every configuration with about 1% of the evaluations (n = 1 per configuration).
+2. CEM is the strongest conventional baseline; RL is best among the search methods only on the stateful MAC.
+3. **The bf16 independent-bit hypothesis is refuted.** CEM, which also samples independent bits, beats RL there, and joint-bit RL does not help (it is also worse on the MAC). RL's weakness lies in learning from a sparse, rejection-heavy reward.
+4. Gate-proxy fidelity: ρ = 0.987–0.995, regret 0–2.7%. The proxy picked RL's best on the MAC, while the true best was an LLM candidate 2.7% higher.
+
+**Joint-bit RL timing.** It ran at about 1.5–3× the wall time of independent-bit RL per run on this machine. Best gate α: MAC 0.522 ± 0.006, bf16 0.439 ± 0.010, bf16 finite 0.423 ± 0.003.
+
+## 2026-10-28: LLM-as-policy pilot (fresh Claude agents, 256-evaluation budget)
+
+**Setup.**
+- Each configuration got a fresh Claude Opus agent (Claude Code subagent), sandboxed to a task folder holding only `rtl.v`, `task.md` (interface, objective, rules, format) and the budget ledger. It had no access to other methods' results and was told not to read outside the folder.
+- Scoring went through `scripts/llm_env.py score`: the same fail-closed scorer and gate-level proxy as the other methods, with a hard budget of 256 evaluations.
+- **Provenance caveats:**
+  - The subagents' default model was misconfigured in this environment, so the model was set explicitly (`opus`).
+  - The agents wrote helper scripts into the shared session scratchpad. One briefly saw another agent's helper; neither reports opening results.
+  - A future API-driven rerun should give each agent an isolated scratch directory and pin the model ID.
+
+**Results** (gate α, before post-route validation):
+
+| Config | LLM (evals) | GA, 20k evals | RL, 20k evals | Best hand-written |
+|---|---|---|---|---|
+| MAC | **0.653** (255) | 0.571 ± 0.019 | 0.626 ± 0.023 (best seed 0.664) | n/a |
+| bf16, any input | **0.616** (254) | 0.512 ± 0.013 | 0.444 ± 0.023 | 0.531 |
+| bf16, finite only | **0.609** (256) | 0.505 ± 0.012 | 0.425 ± 0.004 | 0.506 |
+| matmul4 | **0.669** (127) | RTL search + gate re-rank; see validation | | |
+
+**Insights it reported, each consistent with the RTL:**
+- MAC: alternate `last` so the 32-bit accumulator swings between 0 and −1.
+- bf16: period 2 is optimal for stateless pipelines. Alternate the fractions 0x00 ↔ 0x7F for full partial-product toggling, and tune the exponent sums for long carry chains.
+- matmul4: weights at −1 with lanes swinging ±1, all in phase.
+
+**Legality question (matmul4).** The winning matmul4 pattern is **all weight loads**: it never requests a computation. The XLS datapath computes `x · W` and registers the products on every cycle and discards them on loads, with no operand isolation. So a stream doing no useful work reaches peak power. That is legal under the current gates and physically real, but it belongs to a different category from "worst case while computing". **Plan:** report it both ways, add an optional "useful work" gate (a minimum fraction of compute words) as a separate configuration, and record the missing operand isolation as a design-quality finding.
+
 ## 2026-10-28: CEM bug: learning from rejected candidates (fixed, reruns)
 
 The first CEM runs collapsed on some seeds: MAC seed 3 found no legal candidate in 20k evaluations, and bf16 seed 4 stalled at 0.30. Early batches are almost entirely rejected (1/256 patterns avoid `rst`), so the "elite" set was arbitrary rejected candidates, and the probabilities moved toward them, `rst` included. Fixed: elites come only from legal candidates, and a batch with none leaves the distribution unchanged. Rejected rewards stay unused; ranking by them would leak the gated reward. All earlier CEM results were discarded and rerun. The GA and RL are unaffected: neither moves a distribution toward zero-score samples.

@@ -24,7 +24,7 @@ from xpr.blocks import BLOCKS
 from xpr.search.space import Space
 
 REPO = Path(__file__).resolve().parents[1]
-METHOD_ORDER = ["random", "random_legal", "ga", "cem", "rl"]
+METHOD_ORDER = ["random", "random_legal", "ga", "cem", "rl", "rl_joint", "llm"]
 
 
 def spearman(x, y) -> float:
@@ -154,7 +154,8 @@ def plot(config, runs, rows, ref, path: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {"random": "#999999", "random_legal": "#2a6fdb", "ga": "#2b9348", "cem": "#7b2cbf", "rl": "#d9480f"}
+    colors = {"random": "#999999", "random_legal": "#2a6fdb", "ga": "#2b9348", "cem": "#7b2cbf", "rl": "#d9480f",
+              "rl_joint": "#f4a261", "llm": "#c9184a"}
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
     for m in METHOD_ORDER:
         rs = [r for r in runs if r["method"] == m]

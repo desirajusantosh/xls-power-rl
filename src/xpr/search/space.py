@@ -143,6 +143,11 @@ class Scorer:
             self.curve.append((self.used, self.best))
         return scores
 
+    def result(self, pattern: np.ndarray) -> ProxyResult:
+        """Proxy result of a pattern this scorer has already evaluated."""
+        (r,) = self._cache[hashlib.blake2b(np.asarray(pattern, bool).tobytes(), digest_size=12).hexdigest()]
+        return r
+
     def top_k(self, k: int) -> list[tuple[float, np.ndarray]]:
         return sorted(self.top.values(), key=lambda t: -t[0])[:k]
 

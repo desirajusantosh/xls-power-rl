@@ -4,7 +4,9 @@ Physically aware power models and worst-case (power-virus) activity search for X
 
 **Highlights** (every number is traceable to a run; see [docs/decisions.md](docs/decisions.md)):
 - **Power models across abstraction levels.** Leakage, intercept and slope fitted from gate-level VCD at synthesis and post-route for three blocks. The clock tree raises the activity-independent term by **45–113%** after routing; wiring raises the slope by 12–25%.
-- **RL vs. GA vs. random for worst-case power,** at equal budgets under fail-closed validity gates with a logged reward-hacking record. RL wins on the stateful INT8 MAC (**1444 µW, +58% over hand-written stressmarks**); the GA wins on the stateless bf16 multiplier.
+- **RL vs. GA vs. CEM vs. random vs. an LLM policy for worst-case power,** under fail-closed validity gates with a logged reward-hacking record, validated post-route.
+  - Among search methods (20k evaluations each), RL wins on the stateful INT8 MAC and CEM on the stateless bf16 multiplier and the 4×4 matrix engine.
+  - **Claude as a policy** (reads the RTL, then searches with ≤256 evaluations) **finds the most post-route power in all four configurations**, 3–26% above the best search method. This is one run per configuration.
 - **Proxy rewards can be gamed, and calibration fixes it.** Searching on an RTL toggle proxy leaves 6–12% top-pick regret against post-route power. An exactly calibrated gate-level proxy brings regret to 0% and finds 8–12% more power, at 10× the evaluation cost.
 - **Silent failures caught by fail-closed checks,** each documented: OpenSTA ignoring a stopped clock in VCD, XLS array bit order, XLS subnormal rounding, and a constant-product test pattern.
 
@@ -93,6 +95,36 @@ The same search was repeated with the proxy computed on the **synthesized netlis
 
 - With the gate proxy, every method finds 8–12% more post-route power, and regret falls to zero in all three configurations.
 - The method ranking holds: RL on the stateful MAC, the GA on the stateless multiplier. On bf16, RL now clearly beats random_legal (1405 against 1267 µW).
+
+### All methods, including an LLM policy, validated post-route
+
+Every method searched the same space through the same fail-closed scorer on the gate-level proxy. The exception is matmul4, where the search methods used the RTL proxy and then re-scored their top 20 at gate level, because a full gate-level search there would take about 13 hours. Each method's winners were then re-simulated at gate level, checked against the reference model, and measured with post-route `report_power`. All 162 validated candidates passed.
+
+| Best post-route power | random_legal | GA | CEM | RL | RL, joint bits | **LLM policy** | best hand-written |
+|---|---|---|---|---|---|---|---|
+| INT8 MAC (2 GHz) | 1221 µW | 1383 | 1427 | 1444 | 1273 | **1485** | 915 |
+| bf16 mul, any input (2 GHz) | 1267 | 1495 | 1598 | 1405 | 1350 | **1680** | 1521 |
+| bf16 mul, finite only | 1267 | 1482 | 1608 | 1280 | 1289 | **1670** | 1446 |
+| INT8 4×4 matvec (1.67 GHz) | 8264 | 9112 | 9836 | 8788 | (not run) | **12395*** | 9365 |
+| *evaluations per run* | 20k × 5 seeds | 20k × 5 | 20k × 5 | 20k × 5 | 20k × 5 | **≤256 × 1** | |
+
+**LLM policy** ([scripts/llm_env.py](scripts/llm_env.py)):
+- Setup: a fresh Claude Opus agent gets a task folder containing only the block's RTL and a spec (interface, objective, rules, candidate format). It scores candidates only through the budgeted, fail-closed scorer, and has no access to other methods' results.
+- What the agents worked out from the RTL:
+  - MAC: alternate `last` so the accumulator swings between 0 and −1.
+  - bf16: period 2 is optimal for a stateless pipeline; alternate the mantissas 0x00 ↔ 0x7F for full partial-product toggling, and tune the exponent sums for long carry chains.
+  - matmul4: weights at −1 and all lanes swinging ±1 in phase.
+- The matmul4 agent also wrote its own surrogate model of the RTL to plan candidates offline.
+- Caveat: one run per configuration so far. An API-driven, multi-sample, pinned-model rerun is the next step.
+
+\***The matmul4 winner does no useful work.** Every word is a weight load: the XLS datapath multiplies and registers on every cycle, even during loads, and discards the result (no operand isolation). That is legal under the current gates and physically real, which makes it a design-quality finding in itself. It is a different category from "worst case while computing": the best stimulus that requests computation is CEM's 9836 µW. A "useful work" gate is planned to report both cleanly.
+
+**The independent-bit hypothesis for RL on bf16 is refuted.**
+- CEM samples every bit independently, yet beats RL on bf16 by 14–26%.
+- An RL policy that samples bits jointly (autoregressively within each word) does no better (1350 against 1405 µW), and worse on the MAC (1273 against 1444).
+- RL's bf16 weakness is therefore in how it learns from a sparse, rejection-heavy reward, not in what it can represent.
+
+**Proxy fidelity holds:** ρ(gate proxy, post-route power) = 0.987–0.995, with 0–2.7% top-pick regret.
 
 Prior work: [docs/prior-art.md](docs/prior-art.md). The GA lineage for power viruses goes back to 1997. No RL power-virus work was found.
 
