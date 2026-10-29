@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software or its results, please cite it as below."
+title: "xls-power-rl: worst-case activity search and physically aware power models for XLS-generated accelerator blocks"
+type: software
+authors:
+  - family-names: Desiraju
+    given-names: Santosh
+license: Apache-2.0
+date-released: 2026-10-28
+keywords:
+  - power modeling
+  - power virus
+  - reinforcement learning
+  - high-level synthesis
+  - XLS
+  - OpenROAD
+  - ASAP7
