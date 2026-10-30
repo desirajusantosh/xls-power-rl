@@ -34,6 +34,9 @@ class BuildSpec:
     stages: int
     delay_model: str = "asap7"
     reset: str = "rst"
+    # A network of procs (e.g. designs/systolic): lower to proc-scoped channels and
+    # materialize the internal FIFOs, so codegen emits one module with FIFO submodules.
+    proc_network: bool = False
 
     @property
     def module(self) -> str:
@@ -50,8 +53,11 @@ def build(spec: BuildSpec, out_dir: Path, root: Path = XLS_ROOT) -> dict:
     stdlib = root / "xls" / "dslx" / "stdlib"
     ir, opt, v = out_dir / f"{spec.top}.ir", out_dir / f"{spec.top}.opt.ir", out_dir / f"{spec.module}.v"
     sig = out_dir / f"{spec.module}.sig.textproto"
+    network_ir = ["--lower_to_proc_scoped_channels=true"] if spec.proc_network else []
+    network_cg = ["--materialize_internal_fifos"] if spec.proc_network else []
     cmds = [
-        ([str(root / "ir_converter_main"), f"--dslx_stdlib_path={stdlib}", f"--top={spec.top}", str(spec.dslx)], ir),
+        ([str(root / "ir_converter_main"), f"--dslx_stdlib_path={stdlib}", f"--top={spec.top}", *network_ir,
+          str(spec.dslx)], ir),
         ([str(root / "opt_main"), str(ir)], opt),
         (
             [
@@ -63,6 +69,7 @@ def build(spec: BuildSpec, out_dir: Path, root: Path = XLS_ROOT) -> dict:
                 f"--reset={spec.reset}",
                 "--use_system_verilog=false",
                 "--flop_inputs", "--flop_outputs",
+                *network_cg,
                 f"--output_signature_path={sig}",
             ],
             v,

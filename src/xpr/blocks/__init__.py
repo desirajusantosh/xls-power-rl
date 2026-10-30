@@ -9,5 +9,6 @@ Each block module exposes:
 """
 
 from . import bf16_mul, mac, matmul4
+from .systolic import SYSTOLIC4, SYSTOLIC4_ISO
 
-BLOCKS = {m.NAME: m for m in (mac, bf16_mul, matmul4)}
+BLOCKS = {m.NAME: m for m in (mac, bf16_mul, matmul4, SYSTOLIC4, SYSTOLIC4_ISO)}

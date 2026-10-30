@@ -7,6 +7,7 @@ Physically aware power models and worst-case (power-virus) activity search for X
 - **RL vs. GA vs. CEM vs. random vs. an LLM policy for worst-case power,** under fail-closed validity gates with a logged reward-hacking record, validated post-route.
   - Among search methods (20k evaluations each), RL wins on the stateful INT8 MAC and CEM on the stateless bf16 multiplier and the 4×4 matrix engine.
   - **Claude as a policy** (reads the RTL, then searches with ≤256 evaluations) **finds the most post-route power in all four configurations**, 3–26% above the best search method. This is one run per configuration.
+- **di/dt (power swing at 250 MHz):** search beats the classic hand-written square-wave stressmark by 10–87% in per-cycle post-route power. Here the LLM policy wins only 1 of 3 configurations, and RL is competitive. [Details](#didt-maximizing-periodic-power-swing).
 - **Proxy rewards can be gamed, and calibration fixes it.** Searching on an RTL toggle proxy leaves 6–12% top-pick regret against post-route power. An exactly calibrated gate-level proxy brings regret to 0% and finds 8–12% more power, at 10× the evaluation cost.
 - **Silent failures caught by fail-closed checks,** each documented: OpenSTA ignoring a stopped clock in VCD, XLS array bit order, XLS subnormal rounding, and a constant-product test pattern.
 
@@ -125,6 +126,24 @@ Every method searched the same space through the same fail-closed scorer on the 
 - RL's bf16 weakness is therefore in how it learns from a sparse, rejection-heavy reward, not in what it can represent.
 
 **Proxy fidelity holds:** ρ(gate proxy, post-route power) = 0.987–0.995, with 0–2.7% top-pick regret.
+
+## di/dt: maximizing periodic power swing
+
+**Objective.** Amplitude of the 8-cycle component of per-cycle activity (250 MHz at 2 GHz), standing in for a power-delivery-network resonance. It is not a model of a specific package or PDN impedance.
+
+**Method.** Every method searched on the gate-level per-cycle proxy, and the LLM policy got the same budget (≤256 evaluations). Winners were validated with **per-cycle post-route power**: one `report_power` per one-cycle VCD window, giving a real µW waveform. They are compared against the classic hand-written stressmark: 4 cycles of maximum activity, then 4 idle cycles.
+
+| Best post-route swing (µW) | random_legal | GA | CEM | RL | LLM policy | hand-written square wave |
+|---|---|---|---|---|---|---|
+| INT8 MAC | 421 | **743** | 723 | 741 | 688 | 398 |
+| bf16 mul, any input | 257 | 628 | **742** | 704 | 718 | 672 |
+| bf16 mul, finite only | 257 | 626 | 683 | 701 | **740** | 623 |
+
+- **Search beats the hand-written di/dt stressmark** by 87% on the MAC and 10–19% on bf16.
+- **The LLM policy does not dominate here,** unlike for average power: it wins one of three configurations. Timing-sensitive objectives favor patient search over reasoning with a small budget.
+- **RL is competitive on di/dt:** about tied with the GA on the MAC, and ahead of the GA on bf16. This fits the earlier pattern that RL helps when the order of inputs matters.
+- **`random_legal` is a weak baseline here** because it forces `valid` high every cycle, which removes the main lever for a power swing (going quiet).
+- **Proxy fidelity:** ρ(proxy swing, post-route swing) = 0.91–0.99.
 
 Prior work: [docs/prior-art.md](docs/prior-art.md). The GA lineage for power viruses goes back to 1997. No RL power-virus work was found.
 

@@ -66,9 +66,15 @@ def prepare(run_dir: Path, top: str) -> None:
         final.write_text((run_dir / "results/asap7" / top / "base/6_final.v").read_text())
 
 
+def rtl_source(run_dir: Path, top: str) -> Path:
+    """The RTL to simulate: the flattened copy for hierarchical designs, if one was made."""
+    flat = run_dir / f"{top}_flat.v"
+    return flat if flat.exists() else run_dir / f"{top}.v"
+
+
 def level_source(run_dir: Path, top: str, level: str) -> list[Path]:
     if level == "rtl":
-        return [run_dir / f"{top}.v"]
+        return [rtl_source(run_dir, top)]
     netlist = run_dir / "sim" / {"synth": "1_synth_sim.v", "route": "6_final_sim.v"}[level]
     return [netlist, *(MODELS / m for m in CELL_MODELS)]
 

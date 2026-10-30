@@ -26,7 +26,7 @@ from xpr.search.objectives import harmonic_amplitude
 from xpr.search.space import Space
 
 REPO = Path(__file__).resolve().parents[1]
-METHOD_ORDER = ["random", "random_legal", "ga", "rl", "hand"]
+METHOD_ORDER = ["random", "random_legal", "ga", "cem", "rl", "rl_joint", "llm", "hand"]
 
 
 def pattern_from_words(space: Space, vld_data: list[tuple[int, int]]) -> np.ndarray:
@@ -147,12 +147,13 @@ def plot(config, target, best, path: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {"random": "#999999", "random_legal": "#2a6fdb", "ga": "#2b9348", "rl": "#d9480f", "hand": "black"}
+    colors = {"random": "#999999", "random_legal": "#2a6fdb", "ga": "#2b9348", "cem": "#7b2cbf", "rl": "#d9480f",
+              "rl_joint": "#f4a261", "llm": "#c9184a", "hand": "black"}
     fig, ax = plt.subplots(figsize=(8, 4), dpi=150)
     for m, b in best.items():
         w = np.asarray(b["wave"]) * 1e6
         ax.step(np.arange(len(w) + 1), np.append(w, w[-1]), where="post", color=colors[m],
-                label=f"{m}: swing {b['swing_w'] * 1e6:.0f} µW", lw=1.6 if m in ("rl", "ga", "hand") else 1)
+                label=f"{m}: swing {b['swing_w'] * 1e6:.0f} µW", lw=1.6 if m in ("rl", "ga", "cem", "llm", "hand") else 1)
     ax.set_xlabel("cycle (two periods)")
     ax.set_ylabel("post-route power (µW)")
     ax.set_title(f"{config}: best per-cycle power waveform per method (target period {target})")

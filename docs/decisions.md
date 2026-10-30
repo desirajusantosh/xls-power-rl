@@ -2,6 +2,64 @@
 
 Newest first. Each entry: date, decision, why, what would change it.
 
+## 2026-10-29: di/dt study results (validated per-cycle post-route)
+
+**Setup.**
+- Swing objective with an 8-cycle period, on the gate-level per-cycle proxy.
+- 5 seeds × 20k evaluations for random, random_legal, GA, CEM and RL; one LLM agent per configuration (≤256 evaluations, isolated `work/` folders).
+- Validation in `validate_didt.py`: per-cycle post-route power over two steady-state periods.
+
+**Best post-route swing (µW):**
+
+| Config | GA | CEM | RL | LLM | hand-written |
+|---|---|---|---|---|---|
+| MAC | **743** | 723 | 741 | 688 | 398 |
+| bf16, any input | 628 | **742** | 704 | 718 | 672 |
+| bf16, finite only | 626 | 683 | 701 | **740** | 623 |
+
+ρ(proxy, post-route) = 0.911 (MAC), 0.988, 0.984.
+
+**Readings.**
+- Search beats the hand-written square-wave stressmark everywhere.
+- The LLM's average-power dominance does **not** carry over to di/dt: it is best on one configuration of three.
+- RL is competitive, consistent with RL helping where input order matters.
+- **Baseline caveat:** `random_legal` forces `valid` = 1, so it cannot use the quiet-phase lever that every strong method (and every LLM agent) used. It is reported as is, but it should not be read as the strongest form of random search on this objective.
+
+**LLM agents' insights** (from their reports, consistent with the RTL):
+- A 4-on/4-off burst maximizes the 8-cycle component.
+- Freeze the quiet half by holding the data with `valid` low; toggling `valid` itself adds switching.
+- Lead the input changes with the `valid` window by one cycle to align pipeline stages (bf16).
+- Alternate the product's sign through the accumulator's long carry chains (MAC).
+
+## 2026-10-28: Block 4: INT8 systolic array as a generated XLS proc network
+
+**Design.** `designs/systolic/gen_systolic.py N [--isolate]` writes an N×N weight-stationary systolic array as an explicit DSLX proc network:
+- one `NodeE`/`NodeLast` proc per PE, with activations flowing east and partial sums flowing south, as in XLS's `matmul_4x4` example
+- a Distributor/Collector pair, so the array pipelines fully
+- depth-2 FIFOs on every internal channel
+- the same interface and semantics as `matmul4` at N = 4 (`{load, row, x: s8[N]}` → `s32[N]`, weights before the word)
+- `--isolate` adds operand isolation: the multiplier holds its previous operand on weight-load words
+
+Each generated file self-checks against a direct matrix-vector model, including a weight reload. 2×2, 4×4 and 4×4-isolated pass. XLS multi-proc codegen (`--materialize_internal_fifos`) produces a single Verilog module for each, lint-clean in Verilator.
+
+**DSLX interpreter pitfalls found** (this release; both are silent):
+1. A spawned proc sending from inside `unroll_for!` in `next()`: the data never arrives, and the test still passes when it does not depend on the data. Minimal repro: a source proc with `join(tok, send(tok, outs[k], v))` in an `unroll_for!` body; plain sends from the same proc do arrive.
+2. Sends nested in an unused `join(send(..), send(..));` expression statement are dropped: the network deadlocks while the sender's `next()` keeps completing.
+
+**Update (2026-10-29): one root cause, already reported.**
+- A systematic check of seven variants shows that any `send()` used directly as an argument to `join()` is never delivered by the DSLX interpreter, including in straight-line code and when the joined token is used later. `unroll_for!` is not involved: a plain send inside `unroll_for!` works.
+- `ir_converter_main` keeps the sends (`after_all(send.6, send.7)`), so the IR and hardware are correct; the bug is interpreter-only, and DSLX tests diverge from the hardware.
+- This is **google/xls#1953** (open since 2025-02, reported for the `unroll_for!` case only). The broader repro and the IR evidence were posted 2026-10-30 as https://github.com/google/xls/issues/1953#issuecomment-6512141385 (source: `docs/upstream/xls-1953-comment.md`).
+
+**Workaround:** bind each send to a `let` before joining. The generator writes chained top-level sends.
+
+**Other fixes on the way:**
+- `s0`/`s1` are reserved names (sN types).
+- Draining the east edge into the collector created a circular wait with bounded FIFOs. Last-column nodes now have no east output, which makes the network acyclic.
+- Codegen requires an explicit FIFO depth on every internal channel.
+
+**Open before the flow runs.** The RTL is hierarchical (node and FIFO submodules), while earlier blocks were flat. Synthesis flattens, so gate level is fine, but the RTL proxy and the Icarus RTL VCD count top-level nets only. Plan: flatten at RTL (Verilator `--flatten`) and re-verify calibration. 8×8 needs wider-than-64-bit words in the harness.
+
 ## 2026-10-28: Final validation: all methods incl. LLM, CEM, joint-bit RL
 
 All 162 candidates passed the gates and the reference check at rtl, synth and route.

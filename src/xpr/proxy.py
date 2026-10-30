@@ -75,7 +75,7 @@ class Proxy:
         binary = out / "Vdut"
         src = REPO / "flow/verilator/proxy.cpp"
         if level == "rtl":
-            sources = [run_dir / f"{top}.v"]
+            sources = [gatesim.rtl_source(run_dir, top)]
         else:
             gatesim.prepare(run_dir, top)
             sources = [run_dir / "sim" / "1_synth_sim.v"]

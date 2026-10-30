@@ -30,9 +30,20 @@ import numpy as np
 from xpr.blocks import BLOCKS
 from xpr.gates import RejectLog
 from xpr.proxy import Proxy
+from xpr.search import objectives
 from xpr.search.space import Scorer, Space
 
 PERIOD = 8
+
+OBJECTIVE_TEXT = {
+    "alpha": """Maximize the mean toggle rate of the synthesized gate-level netlist's nets (alpha, in toggles per
+net bit per cycle) over the window. Higher alpha means higher dynamic power.""",
+    "swing": """Maximize the cycle-to-cycle power swing at a period of {period} cycles: the amplitude of the
+{period}-cycle component of the per-cycle toggle-rate waveform of the synthesized gate-level netlist
+(toggles per net bit per cycle). Think of the supply current oscillating at 1/{period} of the clock
+frequency, as a di/dt stressmark that excites a power-delivery resonance. Average activity alone does
+not score: a pattern whose activity is the same every cycle has zero swing.""",
+}
 
 LAYOUTS = {
     "mac": """data[16:0] = { a[7:0], b[7:0], last }  (a and b are signed 8-bit, two's complement)
@@ -43,6 +54,7 @@ Each accepted input outputs the bf16 product a*b.""",
 load=1: weight row `row` <- x (stored; no output).  load=0: x is an activation vector; outputs y = x . W
 (y[c] = sum_r x[r] * W[r][c], four s32 results).  Weights reset to zero.""",
 }
+LAYOUTS["systolic4"] = LAYOUTS["systolic4_iso"] = LAYOUTS["matmul4"]  # same interface
 
 
 def task(args) -> None:
@@ -71,8 +83,7 @@ repeated continuously; activity is measured over a 256-cycle window that starts 
 has filled.
 
 ## Objective
-Maximize the mean toggle rate of the synthesized gate-level netlist's nets (alpha, in toggles per
-net bit per cycle) over the window. Higher alpha means higher dynamic power.
+{OBJECTIVE_TEXT[args.objective].format(period=args.swing_period)}
 
 ## Rules (fail-closed: a violating candidate scores 0)
 - rst must be 0 in every word of the pattern (reset only happens before the pattern).
@@ -87,11 +98,13 @@ duplicates and rule violations. Score candidates by writing a JSON file:
 
 Each word is either an integer (the full {width}-bit word, e.g. "0x1abcd" as a string or a number), or
 an object {{"rst": 0, "valid": 1, "data": <int>}}. Then run the scoring command you were given.
-It prints each candidate's alpha (or the rules it broke) and the budget left.
+It prints each candidate's score (or the rules it broke) and the budget left.
 """)
     (d / "ledger.json").write_text(json.dumps({
         "block": block.NAME, "top": args.top, "budget": args.budget, "used": 0, "best": 0.0,
-        "finite_only": args.finite_only, "proxy_level": "synth", "period": PERIOD}, indent=2))
+        "finite_only": args.finite_only, "proxy_level": "synth", "period": PERIOD,
+        "objective": args.objective, "swing_period": args.swing_period}, indent=2))
+    (d / "work").mkdir(exist_ok=True)  # the agent's own scratch space for helper scripts
     (d / "history.jsonl").write_text("")
     print(f"task written to {d}")
 
@@ -130,9 +143,11 @@ def score(args) -> None:
         print(f"only {remaining} evaluations left: scoring the first {remaining} of {len(pats)}")
         pats = pats[:remaining]
     run_dir = Path.home() / "runs" / "orfs" / led["top"]
-    with Proxy.build(block, run_dir, led["top"], level="synth") as proxy:
+    swing = led.get("objective", "alpha") == "swing"
+    objective = objectives.swing(led["swing_period"]) if swing else None
+    with Proxy.build(block, run_dir, led["top"], level="synth", per_cycle=swing) as proxy:
         sc = Scorer(space, proxy, len(pats), RejectLog(d / "rejects.jsonl"),
-                    {"method": "llm", "dir": str(d)})
+                    {"method": "llm", "dir": str(d)}, objective)
         sc.best = led["best"]
         scores = sc.score(pats, tag="llm")
     with open(d / "history.jsonl", "a") as f:
@@ -140,7 +155,8 @@ def score(args) -> None:
             verdict = space.gates(p, sc.result(p))
             f.write(json.dumps({"eval": led["used"] + i + 1, "score": float(s),
                                 "failed": verdict.failed, "pattern": p.astype(int).tolist()}) + "\n")
-            print(f"candidate {i}: " + (f"alpha={s:.4f}" if s > 0 else f"REJECTED {verdict.failed}"))
+            label = "swing" if swing else "alpha"
+            print(f"candidate {i}: " + (f"{label}={s:.4f}" if s > 0 else f"REJECTED {verdict.failed}"))
     led["used"] += len(pats)
     led["best"] = max(led["best"], float(scores.max(initial=0.0)))
     (d / "ledger.json").write_text(json.dumps(led, indent=2))
@@ -171,7 +187,8 @@ def finish(args) -> None:
             rejects[name] = rejects.get(name, 0) + 1
     result = {"block": led["block"], "top": led["top"], "method": "llm", "seed": args.seed,
               "period": PERIOD, "finite_only": led["finite_only"], "proxy_level": "synth",
-              "objective": "alpha", "budget": led["budget"], "best": best, "curve": curve,
+              "objective": led.get("objective", "alpha"), "swing_period": led.get("swing_period", 8),
+              "budget": led["budget"], "best": best, "curve": curve,
               "rejects": rejects, "top": top[:10], "task_dir": str(d)}
     (out / f"llm_s{args.seed}.json").write_text(json.dumps(result))
     print(f"wrote {out / f'llm_s{args.seed}.json'}: best {best:.4f} in {led['used']} evaluations")
@@ -186,6 +203,8 @@ def main() -> None:
     t.add_argument("--dir", required=True)
     t.add_argument("--budget", type=int, default=256)
     t.add_argument("--finite-only", action="store_true")
+    t.add_argument("--objective", default="alpha", choices=["alpha", "swing"])
+    t.add_argument("--swing-period", type=int, default=8)
     s = sub.add_parser("score")
     s.add_argument("--dir", required=True)
     s.add_argument("candidates")
