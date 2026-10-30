@@ -139,6 +139,12 @@ Every method searched the same space through the same fail-closed scorer on the 
 | bf16 mul, any input | 257 | 628 | **742** | 704 | 718 | 672 |
 | bf16 mul, finite only | 257 | 626 | 683 | 701 | **740** | 623 |
 
+Best per-cycle post-route power waveform per method, over two periods (the hand-written square wave is in black):
+
+<img src="docs/img/mac_p2_gate_didt8_waveforms.png" width="760" alt="MAC: per-cycle post-route power waveforms per method">
+<img src="docs/img/bf16mul_p4_gate_didt8_waveforms.png" width="760" alt="bf16, any input: per-cycle post-route power waveforms">
+<img src="docs/img/bf16mul_p4_finite_gate_didt8_waveforms.png" width="760" alt="bf16, finite only: per-cycle post-route power waveforms">
+
 - **Search beats the hand-written di/dt stressmark** by 87% on the MAC and 10–19% on bf16.
 - **The LLM policy does not dominate here,** unlike for average power: it wins one of three configurations. Timing-sensitive objectives favor patient search over reasoning with a small budget.
 - **RL is competitive on di/dt:** about tied with the GA on the MAC, and ahead of the GA on bf16. This fits the earlier pattern that RL helps when the order of inputs matters.
