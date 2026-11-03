@@ -1,0 +1,19 @@
+xls-power-rl
+Copyright 2026 Santosh Desiraju
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This project includes material derived from third-party work:
+
+- designs/matmul4/matmul4.x is adapted from xls/examples/matmul_4x4/matmul_4x4.x
+  in Google XLS (https://github.com/google/xls), Copyright 2021 The XLS Authors,
+  licensed under the Apache License, Version 2.0. Modifications: INT8 operands
+  with s32 accumulation, a single weight-stationary proc instead of a proc
+  network, and reloadable weights (see docs/decisions.md).
+
+- designs/bf16_mul/bf16_mul.x calls the XLS standard library (bfloat16.x /
+  apfloat.x), which is not redistributed here.
+
+Tools used but not redistributed: Google XLS, OpenROAD and OpenROAD-flow-scripts,
+the ASAP7 predictive PDK and standard-cell library, Verilator and Icarus Verilog.
+Their licenses apply to their use; see the respective projects.
